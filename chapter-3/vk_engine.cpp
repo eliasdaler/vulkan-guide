@@ -450,7 +450,7 @@ void VulkanEngine::init_imgui()
 	ImGui_ImplVulkan_DestroyFontUploadObjects();
 
 	// add the destroy the imgui created structures
-	_mainDeletionQueue.push_function([=]() {
+	_mainDeletionQueue.push_function([=,this]() {
 		vkDestroyDescriptorPool(_device, imguiPool, nullptr);
 		ImGui_ImplVulkan_Shutdown();
 		});
@@ -540,21 +540,22 @@ void VulkanEngine::init_vulkan()
 
 	SDL_Vulkan_CreateSurface(_window, _instance, &_surface);
 
-	VkPhysicalDeviceVulkan13Features features{};
-	features.dynamicRendering = true;
-	features.synchronization2 = true;
-
 	VkPhysicalDeviceVulkan12Features features12{};
 	features12.bufferDeviceAddress = true;
 	features12.descriptorIndexing = true;
+
+	VkPhysicalDeviceVulkan13Features features13{};
+	features13.dynamicRendering = true;
+	features13.synchronization2 = true;
+
 
 	//use vkbootstrap to select a gpu.
 	//We want a gpu that can write to the SDL surface and supports vulkan 1.2
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
 	vkb::PhysicalDevice physicalDevice = selector
 		.set_minimum_version(1, 3)
-		.set_required_features_13(features)
 		.set_required_features_12(features12)
+		.set_required_features_13(features13)
 		.set_surface(_surface)
 		.select()
 		.value();
@@ -676,7 +677,7 @@ void VulkanEngine::init_swapchain()
 	VK_CHECK(vkCreateImageView(_device, &dview_info, nullptr, &_depthImage.imageView));
 //< depthimg
 	//add to deletion queues
-	_mainDeletionQueue.push_function([=]() {
+	_mainDeletionQueue.push_function([=,this]() {
 		vkDestroyImageView(_device, _drawImage.imageView, nullptr);
 		vmaDestroyImage(_allocator, _drawImage.image, _drawImage.allocation);
 
@@ -726,7 +727,7 @@ void VulkanEngine::init_commands()
 
 	VK_CHECK(vkAllocateCommandBuffers(_device, &cmdAllocInfo, &_immCommandBuffer));
 
-	_mainDeletionQueue.push_function([=]() {
+	_mainDeletionQueue.push_function([=,this]() {
 	vkDestroyCommandPool(_device, _immCommandPool, nullptr);
 	});
 }
@@ -826,7 +827,7 @@ void VulkanEngine::init_sync_structures()
 	}
 
 	VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_immFence));
-	_mainDeletionQueue.push_function([=]() { vkDestroyFence(_device, _immFence, nullptr); });
+	_mainDeletionQueue.push_function([=,this]() { vkDestroyFence(_device, _immFence, nullptr); });
 
 }
 

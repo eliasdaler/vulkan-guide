@@ -424,7 +424,7 @@ void VulkanEngine::init_vulkan()
 	SDL_Vulkan_CreateSurface(_window, _instance, &_surface);
 
 	VkPhysicalDeviceVulkan12Features features12{};
-    features12.bufferDeviceAddress = true;
+	features12.bufferDeviceAddress = true;
 
 	VkPhysicalDeviceVulkan13Features features13{};
 	features13.dynamicRendering = true;
@@ -435,7 +435,7 @@ void VulkanEngine::init_vulkan()
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
 	vkb::PhysicalDevice physicalDevice = selector
 		.set_minimum_version(1, 3)
-        .set_required_features_12(features12)
+		.set_required_features_12(features12)
 		.set_required_features_13(features13)
 		.set_surface(_surface)
 		.select()
