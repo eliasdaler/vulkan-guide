@@ -50,63 +50,61 @@ bool GenericFeaturesPNextNode::match(GenericFeaturesPNextNode const& requested, 
 class VulkanFunctions {
     private:
     std::mutex init_mutex;
-    struct VulkanLibrary {
-#if defined(__linux__) || defined(__APPLE__)
-        void* library;
-#elif defined(_WIN32)
-        HMODULE library;
-#endif
-        PFN_vkGetInstanceProcAddr ptr_vkGetInstanceProcAddr = VK_NULL_HANDLE;
 
-        VulkanLibrary() {
+#if defined(__linux__) || defined(__APPLE__)
+    void* library = nullptr;
+#elif defined(_WIN32)
+    HMODULE library = nullptr;
+#endif
+
+    bool load_vulkan_library() {
+        // Can immediately return if it has already been loaded
+        if (library) {
+            return true;
+        }
 #if defined(__linux__)
-            library = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
-            if (!library) library = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+        library = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
+        if (!library) library = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
 #elif defined(__APPLE__)
-            library = dlopen("libvulkan.dylib", RTLD_NOW | RTLD_LOCAL);
-            if (!library) library = dlopen("libvulkan.1.dylib", RTLD_NOW | RTLD_LOCAL);
+        library = dlopen("libvulkan.dylib", RTLD_NOW | RTLD_LOCAL);
+        if (!library) library = dlopen("libvulkan.1.dylib", RTLD_NOW | RTLD_LOCAL);
+        if (!library) library = dlopen("libMoltenVK.dylib", RTLD_NOW | RTLD_LOCAL);
 #elif defined(_WIN32)
-            library = LoadLibrary(TEXT("vulkan-1.dll"));
+        library = LoadLibrary(TEXT("vulkan-1.dll"));
 #else
-            assert(false && "Unsupported platform");
+        assert(false && "Unsupported platform");
 #endif
-            if (!library) return;
-            load_func(ptr_vkGetInstanceProcAddr, "vkGetInstanceProcAddr");
-        }
-
-        template <typename T> void load_func(T& func_dest, const char* func_name) {
-#if defined(__linux__) || defined(__APPLE__)
-            func_dest = reinterpret_cast<T>(dlsym(library, func_name));
-#elif defined(_WIN32)
-            func_dest = reinterpret_cast<T>(GetProcAddress(library, func_name));
-#endif
-        }
-        void close() {
-#if defined(__linux__) || defined(__APPLE__)
-            dlclose(library);
-#elif defined(_WIN32)
-            FreeLibrary(library);
-#endif
-            library = 0;
-        }
-    };
-    VulkanLibrary& get_vulkan_library() {
-        static VulkanLibrary lib;
-        return lib;
+        if (!library) return false;
+        load_func(ptr_vkGetInstanceProcAddr, "vkGetInstanceProcAddr");
+        return ptr_vkGetInstanceProcAddr != nullptr;
     }
 
-    bool load_vulkan(PFN_vkGetInstanceProcAddr fp_vkGetInstanceProcAddr = nullptr) {
+    template <typename T> void load_func(T& func_dest, const char* func_name) {
+#if defined(__linux__) || defined(__APPLE__)
+        func_dest = reinterpret_cast<T>(dlsym(library, func_name));
+#elif defined(_WIN32)
+        func_dest = reinterpret_cast<T>(GetProcAddress(library, func_name));
+#endif
+    }
+    void close() {
+#if defined(__linux__) || defined(__APPLE__)
+        dlclose(library);
+#elif defined(_WIN32)
+        FreeLibrary(library);
+#endif
+        library = 0;
+    }
+
+    public:
+    bool init_vulkan_funcs(PFN_vkGetInstanceProcAddr fp_vkGetInstanceProcAddr = nullptr) {
+        std::lock_guard<std::mutex> lg(init_mutex);
         if (fp_vkGetInstanceProcAddr != nullptr) {
             ptr_vkGetInstanceProcAddr = fp_vkGetInstanceProcAddr;
-            return true;
         } else {
-            auto& lib = get_vulkan_library();
-            ptr_vkGetInstanceProcAddr = lib.ptr_vkGetInstanceProcAddr;
-            return lib.library != nullptr && lib.ptr_vkGetInstanceProcAddr != VK_NULL_HANDLE;
+            bool ret = load_vulkan_library();
+            if (!ret) return false;
         }
-    }
 
-    void init_pre_instance_funcs() {
         fp_vkEnumerateInstanceExtensionProperties = reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(
             ptr_vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties"));
         fp_vkEnumerateInstanceLayerProperties = reinterpret_cast<PFN_vkEnumerateInstanceLayerProperties>(
@@ -115,6 +113,7 @@ class VulkanFunctions {
             ptr_vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
         fp_vkCreateInstance =
             reinterpret_cast<PFN_vkCreateInstance>(ptr_vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance"));
+        return true;
     }
 
     public:
@@ -155,13 +154,6 @@ class VulkanFunctions {
     PFN_vkGetPhysicalDeviceSurfacePresentModesKHR fp_vkGetPhysicalDeviceSurfacePresentModesKHR = nullptr;
     PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR fp_vkGetPhysicalDeviceSurfaceCapabilitiesKHR = nullptr;
 
-    bool init_vulkan_funcs(PFN_vkGetInstanceProcAddr fp_vkGetInstanceProcAddr) {
-        std::lock_guard<std::mutex> lg(init_mutex);
-        if (!load_vulkan(fp_vkGetInstanceProcAddr)) return false;
-        init_pre_instance_funcs();
-        return true;
-    }
-
     void init_instance_funcs(VkInstance inst) {
         instance = inst;
         get_inst_proc_addr(fp_vkDestroyInstance, "vkDestroyInstance");
@@ -188,7 +180,7 @@ class VulkanFunctions {
     }
 };
 
-VulkanFunctions& vulkan_functions() {
+static VulkanFunctions& vulkan_functions() {
     static VulkanFunctions v;
     return v;
 }
@@ -497,7 +489,7 @@ bool SystemInfo::is_layer_available(const char* layer_name) const {
     if (!layer_name) return false;
     return detail::check_layer_supported(available_layers, layer_name);
 }
-void destroy_surface(Instance instance, VkSurfaceKHR surface) {
+void destroy_surface(Instance const& instance, VkSurfaceKHR surface) {
     if (instance.instance != VK_NULL_HANDLE && surface != VK_NULL_HANDLE) {
         detail::vulkan_functions().fp_vkDestroySurfaceKHR(instance.instance, surface, instance.allocation_callbacks);
     }
@@ -507,7 +499,7 @@ void destroy_surface(VkInstance instance, VkSurfaceKHR surface, VkAllocationCall
         detail::vulkan_functions().fp_vkDestroySurfaceKHR(instance, surface, callbacks);
     }
 }
-void destroy_instance(Instance instance) {
+void destroy_instance(Instance const& instance) {
     if (instance.instance != VK_NULL_HANDLE) {
         if (instance.debug_messenger != VK_NULL_HANDLE)
             destroy_debug_utils_messenger(instance.instance, instance.debug_messenger, instance.allocation_callbacks);
@@ -774,6 +766,19 @@ InstanceBuilder& InstanceBuilder::enable_layer(const char* layer_name) {
 InstanceBuilder& InstanceBuilder::enable_extension(const char* extension_name) {
     if (!extension_name) return *this;
     info.extensions.push_back(extension_name);
+    return *this;
+}
+InstanceBuilder& InstanceBuilder::enable_extensions(std::vector<const char*> const& extensions) {
+    for (const auto extension : extensions) {
+        info.extensions.push_back(extension);
+    }
+    return *this;
+}
+InstanceBuilder& InstanceBuilder::enable_extensions(size_t count, const char* const* extensions) {
+    if (!extensions || count == 0) return *this;
+    for (size_t i = 0; i < count; i++) {
+        info.extensions.push_back(extensions[i]);
+    }
     return *this;
 }
 InstanceBuilder& InstanceBuilder::enable_validation_layers(bool enable_validation) {
@@ -1294,9 +1299,16 @@ PhysicalDeviceSelector& PhysicalDeviceSelector::add_required_extension(const cha
     criteria.required_extensions.push_back(extension);
     return *this;
 }
-PhysicalDeviceSelector& PhysicalDeviceSelector::add_required_extensions(std::vector<const char*> extensions) {
+PhysicalDeviceSelector& PhysicalDeviceSelector::add_required_extensions(std::vector<const char*> const& extensions) {
     for (const auto& ext : extensions) {
         criteria.required_extensions.push_back(ext);
+    }
+    return *this;
+}
+PhysicalDeviceSelector& PhysicalDeviceSelector::add_required_extensions(size_t count, const char* const* extensions) {
+    if (!extensions || count == 0) return *this;
+    for (size_t i = 0; i < count; i++) {
+        criteria.required_extensions.push_back(extensions[i]);
     }
     return *this;
 }
@@ -1304,7 +1316,7 @@ PhysicalDeviceSelector& PhysicalDeviceSelector::add_desired_extension(const char
     criteria.desired_extensions.push_back(extension);
     return *this;
 }
-PhysicalDeviceSelector& PhysicalDeviceSelector::add_desired_extensions(std::vector<const char*> extensions) {
+PhysicalDeviceSelector& PhysicalDeviceSelector::add_desired_extensions(const std::vector<const char*>& extensions) {
     for (const auto& ext : extensions) {
         criteria.desired_extensions.push_back(ext);
     }
@@ -1387,6 +1399,17 @@ bool PhysicalDevice::enable_extension_if_present(const char* extension) {
     }
     return false;
 }
+bool PhysicalDevice::enable_extensions_if_present(const std::vector<const char*>& extensions) { 
+    for (const auto extension : extensions) {
+        auto it = std::find_if(std::begin(available_extensions),
+            std::end(available_extensions),
+            [extension](std::string const& ext_name) { return ext_name == extension; });
+        if (it == std::end(available_extensions)) return false;
+    }
+    for (const auto extension : extensions)
+        extensions_to_enable.push_back(extension);
+    return true;
+}
 
 PhysicalDevice::operator VkPhysicalDevice() const { return this->physical_device; }
 
@@ -1457,22 +1480,22 @@ DispatchTable Device::make_table() const { return { device, fp_vkGetDeviceProcAd
 Device::operator VkDevice() const { return this->device; }
 
 CustomQueueDescription::CustomQueueDescription(uint32_t index, std::vector<float> priorities)
-: index(index), priorities(priorities) {}
+: index(index), priorities(std::move(priorities)) {}
 
-void destroy_device(Device device) {
+void destroy_device(Device const& device) {
     device.internal_table.fp_vkDestroyDevice(device.device, device.allocation_callbacks);
 }
 
-DeviceBuilder::DeviceBuilder(PhysicalDevice phys_device) { physical_device = phys_device; }
+DeviceBuilder::DeviceBuilder(PhysicalDevice phys_device) { physical_device = std::move(phys_device); }
 
 Result<Device> DeviceBuilder::build() const {
 
     std::vector<CustomQueueDescription> queue_descriptions;
     queue_descriptions.insert(queue_descriptions.end(), info.queue_descriptions.begin(), info.queue_descriptions.end());
 
-    if (queue_descriptions.size() == 0) {
+    if (queue_descriptions.empty()) {
         for (uint32_t i = 0; i < physical_device.queue_families.size(); i++) {
-            queue_descriptions.push_back(CustomQueueDescription{ i, std::vector<float>{ 1.0f } });
+            queue_descriptions.emplace_back(i, std::vector<float>{ 1.0f });
         }
     }
 
@@ -1504,7 +1527,7 @@ Result<Device> DeviceBuilder::build() const {
         }
     }
 
-    if (user_defined_phys_dev_features_2 && physical_device.extended_features_chain.size() > 0) {
+    if (user_defined_phys_dev_features_2 && !physical_device.extended_features_chain.empty()) {
         return { DeviceError::VkPhysicalDeviceFeatures2_in_pNext_chain_while_using_add_required_extension_features };
     }
 
@@ -1562,7 +1585,7 @@ Result<Device> DeviceBuilder::build() const {
     return device;
 }
 DeviceBuilder& DeviceBuilder::custom_queue_setup(std::vector<CustomQueueDescription> queue_descriptions) {
-    info.queue_descriptions = queue_descriptions;
+    info.queue_descriptions = std::move(queue_descriptions);
     return *this;
 }
 DeviceBuilder& DeviceBuilder::set_allocation_callbacks(VkAllocationCallbacks* callbacks) {
@@ -1873,7 +1896,7 @@ Result<std::vector<VkImageView>> Swapchain::get_image_views() { return get_image
 Result<std::vector<VkImageView>> Swapchain::get_image_views(const void* pNext) {
     const auto swapchain_images_ret = get_images();
     if (!swapchain_images_ret) return swapchain_images_ret.error();
-    const auto swapchain_images = swapchain_images_ret.value();
+    const auto& swapchain_images = swapchain_images_ret.value();
 
     bool already_contains_image_view_usage = false;
     while (pNext) {

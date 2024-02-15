@@ -24,7 +24,7 @@
 #include <string>
 #include <system_error>
 
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 #include "VkBootstrapDispatch.h"
 
@@ -126,11 +126,10 @@ template <typename T> class Result {
 	T*       operator-> ()       noexcept { assert (m_init); return &m_value; }
 	const T& operator* () const& noexcept { assert (m_init);	return m_value; }
 	T&       operator* () &      noexcept { assert (m_init); return m_value; }
-	T&&      operator* () &&	 noexcept { assert (m_init); return std::move (m_value); }
+	T        operator* () &&	 noexcept { assert (m_init); return std::move (m_value); }
 	const T&  value () const&    noexcept { assert (m_init); return m_value; }
 	T&        value () &         noexcept { assert (m_init); return m_value; }
-	const T&& value () const&&   noexcept { assert (m_init); return std::move (m_value); }
-	T&&       value () &&        noexcept { assert (m_init); return std::move (m_value); }
+	T         value () &&        noexcept { assert (m_init); return std::move (m_value); }
 
     // std::error_code associated with the error
     std::error_code error() const { assert (!m_init); return m_error.type; }
@@ -301,9 +300,9 @@ struct Instance {
     friend class PhysicalDeviceSelector;
 };
 
-void destroy_surface(Instance instance, VkSurfaceKHR surface); // release surface handle
+void destroy_surface(Instance const& instance, VkSurfaceKHR surface); // release surface handle
 void destroy_surface(VkInstance instance, VkSurfaceKHR surface, VkAllocationCallbacks* callbacks = nullptr); // release surface handle
-void destroy_instance(Instance instance); // release instance resources
+void destroy_instance(Instance const& instance); // release instance resources
 
 /* If headless mode is false, by default vk-bootstrap use the following logic to enable the windowing extensions
 
@@ -377,6 +376,8 @@ class InstanceBuilder {
     InstanceBuilder& enable_layer(const char* layer_name);
     // Adds an extension to be enabled. Will fail to create an instance if the extension isn't available.
     InstanceBuilder& enable_extension(const char* extension_name);
+    InstanceBuilder& enable_extensions(std::vector<const char*> const& extensions);
+    InstanceBuilder& enable_extensions(size_t count, const char* const* extensions);
 
     // Headless Mode does not load the required extensions for presentation. Defaults to true.
     InstanceBuilder& set_headless(bool headless = true);
@@ -507,6 +508,10 @@ struct PhysicalDevice {
     // Returns true the extension is present.
     bool enable_extension_if_present(const char* extension);
 
+    // If all the given extensions are present, make all the extensions be enabled on the device.
+    // Returns true if all the extensions are present.
+    bool enable_extensions_if_present(const std::vector<const char*>& extensions);
+
     // A conversion function which allows this PhysicalDevice to be used
     // in places where VkPhysicalDevice would have been used.
     operator VkPhysicalDevice() const;
@@ -590,12 +595,15 @@ class PhysicalDeviceSelector {
     // Require a physical device which supports a specific extension.
     PhysicalDeviceSelector& add_required_extension(const char* extension);
     // Require a physical device which supports a set of extensions.
-    PhysicalDeviceSelector& add_required_extensions(std::vector<const char*> extensions);
+    PhysicalDeviceSelector& add_required_extensions(std::vector<const char*> const& extensions);
+    PhysicalDeviceSelector& add_required_extensions(size_t count, const char* const* extensions);
 
     // Prefer a physical device which supports a specific extension.
-    [[deprecated]] PhysicalDeviceSelector& add_desired_extension(const char* extension);
+    [[deprecated("Use vkb::PhysicalDevice::enable_extension_if_present instead")]] PhysicalDeviceSelector&
+    add_desired_extension(const char* extension);
     // Prefer a physical device which supports a set of extensions.
-    [[deprecated]] PhysicalDeviceSelector& add_desired_extensions(std::vector<const char*> extensions);
+    [[deprecated("Use vkb::PhysicalDevice::enable_extensions_if_present instead")]] PhysicalDeviceSelector&
+    add_desired_extensions(const std::vector<const char*>& extensions);
 
     // Prefer a physical device that supports a (major, minor) version of vulkan.
     [[deprecated("Use set_minimum_version + InstanceBuilder::require_api_version.")]] PhysicalDeviceSelector&
@@ -727,8 +735,9 @@ struct Device {
         PFN_vkDestroyDevice fp_vkDestroyDevice = nullptr;
     } internal_table;
     friend class DeviceBuilder;
-    friend void destroy_device(Device device);
+    friend void destroy_device(Device const& device);
 };
+
 
 // For advanced device queue setup
 struct CustomQueueDescription {
@@ -737,7 +746,7 @@ struct CustomQueueDescription {
     std::vector<float> priorities;
 };
 
-void destroy_device(Device device);
+void destroy_device(Device const& device);
 
 class DeviceBuilder {
     public:
