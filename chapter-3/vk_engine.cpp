@@ -11,6 +11,7 @@
 #include <array>
 #include <iostream>
 #include <fstream>
+#include <thread>
 
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
@@ -32,11 +33,11 @@ using namespace std;
 
 void VulkanEngine::init()
 {
-	// We initialize SDL and create a window with it. 
+	// We initialize SDL and create a window with it.
 	SDL_Init(SDL_INIT_VIDEO);
 
 	SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-	
+
 	_window = SDL_CreateWindow(
 		"Vulkan Engine",
 		SDL_WINDOWPOS_UNDEFINED,
@@ -94,17 +95,17 @@ void VulkanEngine::init_default_data() {
 	rectangle = uploadMesh(rect_indices,rect_vertices);
 
 //< init_data
-	testMeshes = loadGltfMeshes(this,"..\\..\\assets\\basicmesh.glb").value();
+	testMeshes = loadGltfMeshes(this,"../../assets/basicmesh.glb").value();
 }
 
 void VulkanEngine::cleanup()
-{	
+{
 	if (_isInitialized) {
-		
+
 		//make sure the gpu has stopped doing its things
 		vkDeviceWaitIdle(_device);
 		for (auto& frame : _frames) {
-			
+
 		}
 
 		_mainDeletionQueue.flush();
@@ -138,7 +139,7 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd)
 	ComputeEffect& effect = backgroundEffects[currentBackgroundEffect];
 
 	// bind the background compute pipeline
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);	
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
 
 	// bind the descriptor set containing the draw image for the compute pipeline
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
@@ -316,7 +317,7 @@ void VulkanEngine::draw()
 	vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 //< draw_barriers
 	#else
-	
+
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
 	// transition our main draw image into general layout so we can write into it
@@ -333,7 +334,7 @@ void VulkanEngine::draw()
 	//transtion the draw image and the swapchain image into their correct transfer layouts
 	vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 	vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-	
+
 	#endif
 
 //> copyimage
@@ -353,7 +354,7 @@ void VulkanEngine::draw()
 	//finalize the command buffer (we can no longer add commands, but it can now be executed)
 	VK_CHECK(vkEndCommandBuffer(cmd));
 
-	//prepare the submission to the queue. 
+	//prepare the submission to the queue.
 	//we want to wait on the _presentSemaphore, as that semaphore is signaled when the swapchain is ready
 	//we will signal the _renderSemaphore, to signal that rendering has finished
 
@@ -370,7 +371,7 @@ void VulkanEngine::draw()
 
 	//prepare present
 	// this will put the image we just rendered to into the visible window.
-	// we want to wait on the _renderSemaphore for that, 
+	// we want to wait on the _renderSemaphore for that,
 	// as its necessary that drawing commands have finished before the image is displayed to the user
 	VkPresentInfoKHR presentInfo = vkinit::present_info();
 
@@ -459,14 +460,14 @@ void VulkanEngine::run()
 {
 	SDL_Event e;
 	bool bQuit = false;
-	
+
 	//main loop
 	while (!bQuit)
 	{
 		//Handle events on queue
 		while (SDL_PollEvent(&e) != 0)
 		{
-			//close the window when user alt-f4s or clicks the X button			
+			//close the window when user alt-f4s or clicks the X button
 			if (e.type == SDL_QUIT) bQuit = true;
 			if (e.type == SDL_WINDOWEVENT) {
 
@@ -497,7 +498,7 @@ void VulkanEngine::run()
 		ImGui::NewFrame();
 
 		if (ImGui::Begin("background")) {
-			
+
 			ImGui::SliderFloat("Render Scale",&renderScale, 0.3f, 1.f);
 
 			ComputeEffect& selected = backgroundEffects[currentBackgroundEffect];
@@ -515,7 +516,7 @@ void VulkanEngine::run()
 		}
 
 		ImGui::Render();
-		
+
 		draw();
 	}
 }
@@ -533,7 +534,7 @@ void VulkanEngine::init_vulkan()
 
 	vkb::Instance vkb_inst = inst_ret.value();
 
-	//grab the instance 
+	//grab the instance
 	_instance = vkb_inst.instance;
 	_debug_messenger = vkb_inst.debug_messenger;
 
@@ -547,7 +548,7 @@ void VulkanEngine::init_vulkan()
 	features12.bufferDeviceAddress = true;
 	features12.descriptorIndexing = true;
 
-	//use vkbootstrap to select a gpu. 
+	//use vkbootstrap to select a gpu.
 	//We want a gpu that can write to the SDL surface and supports vulkan 1.2
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
 	vkb::PhysicalDevice physicalDevice = selector
@@ -725,7 +726,7 @@ void VulkanEngine::init_commands()
 
 	VK_CHECK(vkAllocateCommandBuffers(_device, &cmdAllocInfo, &_immCommandBuffer));
 
-	_mainDeletionQueue.push_function([=]() { 
+	_mainDeletionQueue.push_function([=]() {
 	vkDestroyCommandPool(_device, _immCommandPool, nullptr);
 	});
 }
@@ -747,7 +748,7 @@ void VulkanEngine::init_background_pipelines()
 	computeLayout.pushConstantRangeCount = 1;
 
 	VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
-		
+
 	VkShaderModule gradientShader;
 	if (!vkutil::load_shader_module("../../shaders/gradient_color.comp.spv", _device, &gradientShader)) {
 		std::cout << "Error when building the compute shader" << std::endl;
@@ -856,7 +857,7 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& f
 
 void VulkanEngine::init_pipelines()
 {
-	//COMPUTE PIPELINES	
+	//COMPUTE PIPELINES
 	init_background_pipelines();
 
 
@@ -871,20 +872,20 @@ void VulkanEngine::init_triangle_pipeline()
 //> triangle_shaders
 	VkShaderModule triangleFragShader;
 	if (!vkutil::load_shader_module("../../shaders/colored_triangle.frag.spv", _device, &triangleFragShader)) {
-		fmt::print("Error when building the triangle fragment shader module");
+		fmt::print("Error when building the triangle fragment shader module\n");
 	}
 	else {
-		fmt::print("Triangle fragment shader succesfully loaded");
+		fmt::print("Triangle fragment shader succesfully loaded\n");
 	}
 
 	VkShaderModule triangleVertexShader;
 	if (!vkutil::load_shader_module("../../shaders/colored_triangle.vert.spv", _device, &triangleVertexShader)) {
-		fmt::print("Error when building the triangle vertex shader module");
+		fmt::print("Error when building the triangle vertex shader module\n");
 	}
 	else {
-		fmt::print("Triangle vertex shader succesfully loaded");
+		fmt::print("Triangle vertex shader succesfully loaded\n");
 	}
-	
+
 	//build the pipeline layout that controls the inputs/outputs of the shader
 	//we are not using descriptor sets or other systems yet, so no need to use anything other than empty default
 	VkPipelineLayoutCreateInfo pipeline_layout_info = vkinit::pipeline_layout_create_info();
@@ -975,10 +976,10 @@ void VulkanEngine::init_mesh_pipeline()
 //> rectangle_shaders
 	VkShaderModule triangleFragShader;
 	if (!vkutil::load_shader_module("../../shaders/colored_triangle.frag.spv", _device, &triangleFragShader)) {
-		fmt::print("Error when building the triangle fragment shader module");
+		fmt::print("Error when building the triangle fragment shader module\n");
 	}
 	else {
-		fmt::print("Triangle fragment shader succesfully loaded");
+		fmt::print("Triangle fragment shader succesfully loaded\n");
 	}
 
 	VkShaderModule triangleVertexShader;
@@ -986,7 +987,7 @@ void VulkanEngine::init_mesh_pipeline()
 		fmt::print("Error when building the triangle vertex shader module");
 	}
 	else {
-		fmt::print("Triangle vertex shader succesfully loaded");
+		fmt::print("Triangle vertex shader succesfully loaded\n");
 	}
 
 	VkPushConstantRange bufferRange{};
@@ -1097,16 +1098,16 @@ void VulkanEngine::init_descriptors()
 	}
 
 	//allocate a descriptor set for our draw image
-	_drawImageDescriptors = globalDescriptorAllocator.allocate(_device,_drawImageDescriptorLayout);	
+	_drawImageDescriptors = globalDescriptorAllocator.allocate(_device,_drawImageDescriptorLayout);
 
 	VkDescriptorImageInfo imgInfo{};
 	imgInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	imgInfo.imageView = _drawImage.imageView;
-	
+
 	VkWriteDescriptorSet drawImageWrite = {};
 	drawImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	drawImageWrite.pNext = nullptr;
-	
+
 	drawImageWrite.dstBinding = 0;
 	drawImageWrite.dstSet = _drawImageDescriptors;
 	drawImageWrite.descriptorCount = 1;
@@ -1160,7 +1161,7 @@ GPUMeshBuffers VulkanEngine::uploadMesh(std::span<uint32_t> indices, std::span<V
 		VMA_MEMORY_USAGE_GPU_ONLY);
 
 //< mesh_create_1
-// 
+//
 //> mesh_create_2
 	AllocatedBuffer staging = create_buffer(vertexBufferSize + indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 

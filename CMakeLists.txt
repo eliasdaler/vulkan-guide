@@ -10,8 +10,14 @@ find_package(Vulkan REQUIRED)
 
 add_subdirectory(third_party)
 
-set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
-set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
+if (WIN32)
+  set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
+  set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
+else ()
+  make_directory("${PROJECT_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE}")
+  set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin/linux")
+  set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin/linux")
+endif ()
 
 add_subdirectory(shared)
 
@@ -46,6 +52,6 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
 endforeach(GLSL)
 
 add_custom_target(
-    Shaders 
+    Shaders
     DEPENDS ${SPIRV_BINARY_FILES}
     )
